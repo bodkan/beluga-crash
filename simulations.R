@@ -4,6 +4,7 @@ init_env(quiet = TRUE)
 library(parallel)
 library(ggplot2)
 library(dplyr)
+library(tidyr)
 
 NE_START <- c(6000, 2000, 500)
 NE_END <- 200
@@ -55,32 +56,40 @@ compute_pi <- function(ts) {
   result
 }
 
+grid_df <- expand_grid(Ne_start = NE_START, Ne_end = NE_END, rep = 1:10)
+
 t_start <- Sys.time()
-df <- lapply(NE_START, function(Ne) {
+
+df <- mclapply(1:nrow(grid_df), function(rep_i) {
+  params_df <- grid_df[rep_i, ]
+
   # config <- create_model(2000)
-  config <- create_model(Ne)
+  config <- create_model(params_df$Ne_start)
   model <- config$model
   samples <- config$samples
   # plot_model(model)
 
-  reps_df <- mclapply(1:REPS, function(rep_i) {
-    ts <- simulate_ts(model, samples)
-    pi <- compute_pi(ts)
-    pi$rep <- rep_i
-    pi$Ne_start <- Ne
-    pi
-  }, mc.cores = detectCores()) %>% do.call(rbind, .)
+  ts <- simulate_ts(model, samples)
+  pi <- compute_pi(ts)
 
-  reps_df
-}) %>% do.call(rbind, .)
+  params_df$result <- list(pi)
+
+  params_df
+}, mc.cores = detectCores()) %>%
+  do.call(rbind, .)
+
 t_end <- Sys.time()
 t_end - t_start
 
-df %>%
-mutate(time = time - T_BOTTLE) %>%
-mutate(scenario = paste("Ne =", Ne_start, "→ Ne =", NE_END)) %>%
-group_by(time, Ne_start, scenario, name) %>%
-summarise(pi = mean(pi)) %>%
+final_df <- df %>%
+  unnest(cols = result) %>%
+  mutate(time = time - T_BOTTLE) %>%
+  mutate(scenario = paste("Ne =", Ne_start, "→ Ne =", NE_END)) %>%
+  group_by(time, Ne_start, scenario, name) %>%
+  summarise(pi = mean(pi)) %>%
+  ungroup()
+
+final_df %>%
 ggplot(aes(time, pi, group = interaction(as.factor(time), scenario), color = scenario)) +
   geom_boxplot(outlier.shape = NA) +
   geom_vline(xintercept = 0, linetype = "dashed") +
@@ -93,3 +102,23 @@ ggplot(aes(time, pi, group = interaction(as.factor(time), scenario), color = sce
   theme_bw()
 
 
+final_df %>%
+group_by(time, scenario) %>%
+summarise(
+  mean_pi = mean(pi),
+  se_pi = sd(pi) / sqrt(n()),
+  lower_ci = mean_pi - qt(0.975, df = n() - 1) * se_pi,
+  upper_ci = mean_pi + qt(0.975, df = n() - 1) * se_pi
+) %>%
+ggplot() +
+  geom_ribbon(aes(time, ymin = lower_ci, ymax = upper_ci, fill = scenario), alpha = 0.5) +
+  geom_line(aes(time, mean_pi, color = scenario)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "time after population crash [ky]",
+       y = "nucleotide diversity") +
+  scale_x_continuous(breaks = sort(c(-3000, seq(0, 50000, by = 5000)))) +
+  guides(color = guide_legend("bottleneck scenario"),
+         fill = guide_legend("bottleneck scenario")) +
+  coord_cartesian(ylim = c(0, 4.2e-4)) +
+  # scale_x_continuous(breaks = unique(df$time)) +
+  theme_bw()
