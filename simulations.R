@@ -10,7 +10,7 @@ NE_START <- c(6000, 2000, 500)
 NE_END <- 200
 
 GENERATION_TIME <- 32
-SEQUENCE_LENGTH <- 10e6
+SEQUENCE_LENGTH <- 50e6
 RECOMBINATION_RATE <- 1e-8
 MUTATION_RATE <- 1.65e-8
 
@@ -84,7 +84,8 @@ t_end - t_start
 final_df <- df %>%
   unnest(cols = result) %>%
   mutate(time = time - T_BOTTLE) %>%
-  mutate(scenario = paste("Ne =", Ne_start, "→ Ne =", NE_END)) %>%
+  mutate(scenario = paste("Ne =", Ne_start, "→ Ne =", NE_END),
+         scenario = factor(scenario, levels = paste("Ne =", NE_START, "→ Ne =", NE_END))) %>%
   group_by(time, Ne_start, scenario, name) %>%
   summarise(pi = mean(pi)) %>%
   ungroup()
@@ -114,9 +115,9 @@ ggplot() +
   geom_ribbon(aes(time, ymin = lower_ci, ymax = upper_ci, fill = scenario), alpha = 0.5) +
   geom_line(aes(time, mean_pi, color = scenario)) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "time after population crash [ky]",
+  labs(x = "time after population bottleneck [years]",
        y = "nucleotide diversity") +
-  scale_x_continuous(breaks = sort(c(-3000, seq(0, 50000, by = 5000)))) +
+  scale_x_continuous(breaks = sort(seq(0, 50000, by = 5000))) +
   guides(color = guide_legend("bottleneck scenario"),
          fill = guide_legend("bottleneck scenario")) +
   coord_cartesian(ylim = c(0, 4.2e-4)) +
