@@ -18,7 +18,7 @@ T_START <- 1
 T_BOTTLE <- 5000
 T_END <- T_BOTTLE + 50000
 
-REPS <- 10
+REPS <- 100
 
 create_model <- function(Ne) {
   pop <- population("Beluga", time = T_START, N = Ne) %>%
@@ -56,30 +56,36 @@ compute_pi <- function(ts) {
   result
 }
 
-grid_df <- expand_grid(Ne_start = NE_START, Ne_end = NE_END, rep = 1:10)
+if (!file.exists("simulations.rds")) {
+  grid_df <- expand_grid(Ne_start = NE_START, Ne_end = NE_END, rep = 1:REPS)
 
-t_start <- Sys.time()
+  t_start <- Sys.time()
 
-df <- mclapply(1:nrow(grid_df), function(rep_i) {
-  params_df <- grid_df[rep_i, ]
+  df <- mclapply(1:nrow(grid_df), function(rep_i) {
+    params_df <- grid_df[rep_i, ]
 
-  # config <- create_model(2000)
-  config <- create_model(params_df$Ne_start)
-  model <- config$model
-  samples <- config$samples
-  # plot_model(model)
+    # config <- create_model(2000)
+    config <- create_model(params_df$Ne_start)
+    model <- config$model
+    samples <- config$samples
+    # plot_model(model)
 
-  ts <- simulate_ts(model, samples)
-  pi <- compute_pi(ts)
+    ts <- simulate_ts(model, samples)
+    pi <- compute_pi(ts)
 
-  params_df$result <- list(pi)
+    params_df$result <- list(pi)
 
-  params_df
-}, mc.cores = detectCores()) %>%
-  do.call(rbind, .)
+    params_df
+  }, mc.cores = detectCores()) %>%
+    do.call(rbind, .)
 
 t_end <- Sys.time()
 t_end - t_start
+
+  saveRDS(df, "simulations.rds")
+} else {
+  df <- readRDS("simulations.rds")
+}
 
 final_df <- df %>%
   unnest(cols = result) %>%
@@ -94,14 +100,21 @@ final_df %>%
 ggplot(aes(time, pi, group = interaction(as.factor(time), scenario), color = scenario)) +
   geom_boxplot(outlier.shape = NA) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "time after population crash [ky]",
+  geom_smooth(aes(group = scenario), linewidth = 0.5, se = FALSE) +
+  labs(x = "time after population bottleneck [years]",
        y = "nucleotide diversity") +
-  scale_x_continuous(breaks = sort(c(-3000, seq(0, 50000, by = 5000)))) +
-  guides(color = guide_legend("bottleneck scenario")) +
+  scale_x_continuous(breaks = sort(seq(0, 50000, by = 5000))) +
+  guides(color = guide_legend("bottleneck scenario"),
+         fill = guide_legend("bottleneck scenario")) +
   coord_cartesian(ylim = c(0, 4.2e-4)) +
-  # scale_x_continuous(breaks = unique(df$time)) +
-  theme_bw()
+  theme_bw() +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.8, 0.8),
+    legend.box.background = element_rect(color = "black", linewidth = 0.5)
+  )
 
+ggsave("pi_boxplots.pdf", width = 10, height = 6)
 
 final_df %>%
 group_by(time, scenario) %>%
@@ -121,5 +134,17 @@ ggplot() +
   guides(color = guide_legend("bottleneck scenario"),
          fill = guide_legend("bottleneck scenario")) +
   coord_cartesian(ylim = c(0, 4.2e-4)) +
-  # scale_x_continuous(breaks = unique(df$time)) +
-  theme_bw()
+  theme_bw() +
+  theme(
+    legend.position = "inside",
+    legend.position.inside = c(0.8, 0.8),
+    legend.box.background = element_rect(color = "black", linewidth = 0.5)
+  )
+
+ggsave("pi_trajectory.pdf", width = 10, height = 6)
+
+# points to discuss:
+#   boxplot "effectively trajectories" vs real trajectories?
+#   parametrization vs PNAS paper
+#      Ne = 6000 -> Ne = 200 or more generalized?
+#      (perhaps we really want to keep this simple here)
